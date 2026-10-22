@@ -173,12 +173,25 @@ app.use((err, _req, res, _next) => {
 });
 
 if (!process.env.MONGODB_URI || !process.env.JWT_SECRET) {
-  console.error("Missing MONGODB_URI or JWT_SECRET. Copy .env.example to .env and configure it.");
+  console.error("Missing MONGODB_URI or JWT_SECRET.");
   process.exit(1);
 }
+
 mongoose.connect(process.env.MONGODB_URI)
   .then(() => {
     console.log("MongoDB connected");
-    app.listen(PORT, () => console.log(`AquaOps API running at http://localhost:${PORT}`));
+
+    if (process.env.VERCEL) {
+      return;
+    }
+
+    app.listen(PORT, () => {
+      console.log(`AquaOps API running at http://localhost:${PORT}`);
+    });
   })
-  .catch(err => { console.error("MongoDB connection failed:", err.message); process.exit(1); });
+  .catch(err => {
+    console.error("MongoDB connection failed:", err.message);
+    process.exit(1);
+  });
+
+export default app;
