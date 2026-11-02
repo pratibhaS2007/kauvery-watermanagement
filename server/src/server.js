@@ -12,9 +12,36 @@ const app = express();
 const PORT = process.env.PORT || 5000;
 const MODULES = ["water-quality", "chemical-dosing", "treatment-process", "alerts", "compliance"];
 
-app.use(cors({ origin: process.env.CLIENT_ORIGIN || "http://localhost:5173" }));
+async function connectDB() {
+  if (mongoose.connection.readyState >= 1) return;
+  if (!process.env.MONGODB_URI) throw new Error("Missing MONGODB_URI environment variable");
+  await mongoose.connect(process.env.MONGODB_URI, {
+    serverSelectionTimeoutMS: 7000,
+  });
+}
+
+app.use(cors({
+  origin: (origin, callback) => {
+    // Allow requests with no origin (like mobile apps or curl) or any vercel / localhost origin
+    if (!origin || origin.includes("vercel.app") || origin.includes("localhost") || origin === process.env.CLIENT_ORIGIN) {
+      return callback(null, true);
+    }
+    return callback(null, true);
+  },
+  credentials: true
+}));
 app.use(express.json({ limit: "1mb" }));
 app.use("/api/auth", rateLimit({ windowMs: 15 * 60 * 1000, limit: 30 }));
+
+app.use(async (req, _res, next) => {
+  if (req.path === "/api/health") return next();
+  try {
+    await connectDB();
+    next();
+  } catch (err) {
+    next(err);
+  }
+});
 
 app.get("/api/health", (_req, res) => res.json({ status: "ok", service: "AquaOps API" }));
 
@@ -169,29 +196,26 @@ app.use((err, _req, res, _next) => {
   console.error(err);
   if (err.code === 11000) return res.status(409).json({ message: "That username already exists" });
   if (err.name === "ValidationError") return res.status(400).json({ message: err.message });
-  res.status(500).json({ message: "Server error. Check the backend terminal." });
+  res.status(500).json({ message: err?.message || "Server error. Check the backend terminal." });
 });
 
-if (!process.env.MONGODB_URI || !process.env.JWT_SECRET) {
-  console.error("Missing MONGODB_URI or JWT_SECRET.");
-  process.exit(1);
-}
-
-mongoose.connect(process.env.MONGODB_URI)
-  .then(() => {
-    console.log("MongoDB connected");
-
-    if (process.env.VERCEL) {
-      return;
-    }
-
-    app.listen(PORT, () => {
-      console.log(`AquaOps API running at http://localhost:${PORT}`);
-    });
-  })
-  .catch(err => {
-    console.error("MongoDB connection failed:", err.message);
+if (!process.env.VERCEL) {
+  if (!process.env.MONGODB_URI || !process.env.JWT_SECRET) {
+    console.error("Missing MONGODB_URI or JWT_SECRET.");
     process.exit(1);
-  });
+  }
+
+  mongoose.connect(process.env.MONGODB_URI)
+    .then(() => {
+      console.log("MongoDB connected");
+      app.listen(PORT, () => {
+        console.log(`AquaOps API running at http://localhost:${PORT}`);
+      });
+    })
+    .catch(err => {
+      console.error("MongoDB connection failed:", err.message);
+      process.exit(1);
+    });
+}
 
 export default app;
